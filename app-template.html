@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>PAÜ Spor Merkezi • Shift Hazırlama</title>
+    <link rel="icon" href="img/logo.ico" type="image/x-icon">
+    
+    <!-- Preconnect & DNS Prefetch -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    
+    <!-- Critical CSS Inline -->
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:Barlow,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;min-height:100vh;overflow-x:hidden}
+        #app-loader{position:fixed;inset:0;background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;transition:opacity .4s cubic-bezier(0.4,0,0.2,1),visibility .4s}
+        #app-loader.loaded{opacity:0;visibility:hidden;pointer-events:none}
+        .loader-content{text-align:center;animation:fadeInUp .6s ease-out}
+        .loader-logo{width:90px;height:90px;margin-bottom:32px;animation:pulse 2.5s ease-in-out infinite;filter:drop-shadow(0 8px 16px rgba(0,0,0,.1))}
+        .loader-text{color:#fff;font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:20px;text-shadow:0 2px 4px rgba(0,0,0,.1)}
+        .loader-bar{width:240px;height:4px;background:rgba(255,255,255,.25);border-radius:10px;overflow:hidden;backdrop-filter:blur(10px)}
+        .loader-progress{height:100%;background:#fff;border-radius:10px;box-shadow:0 0 20px rgba(255,255,255,.5);animation:loading 1.8s cubic-bezier(0.4,0,0.2,1) infinite}
+        @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:.85}}
+        @keyframes loading{0%{width:0;margin-left:0}50%{width:100%;margin-left:0}100%{width:0;margin-left:100%}}
+        @keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        #root:empty{min-height:100vh}
+    </style>
+    
+    <!-- Fonts - Async load -->
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&display=swap"></noscript>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="bg-slate-100 min-h-screen pb-24 lg:pb-0">
+    
+    <!-- Production Loading Screen -->
+    <div id="app-loader">
+        <div class="loader-content">
+            <img src="img/logo.png" class="loader-logo" alt="PAÜ Logo" onerror="this.style.display='none'" />
+            <div class="loader-text">Shift Sistemi Yükleniyor</div>
+            <div class="loader-bar">
+                <div class="loader-progress"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- React App Root -->
+    <div id="root"></div>
+    
+    <!-- App will inject bundled scripts here -->
+    
+    <!-- Performance Monitoring -->
+    <script>
+        // Performance tracking
+        if (window.performance && window.performance.timing) {
+            window.addEventListener('load', function() {
+                setTimeout(function() {
+                    const perfData = window.performance.timing;
+                    const pageLoadTime = perfData.loadEventEnd - perfData.navigationStart;
+                    const connectTime = perfData.responseEnd - perfData.requestStart;
+                    
+                    console.log('%c⚡ Performance Metrics', 'color: #0ea5e9; font-weight: bold; font-size: 14px');
+                    console.log('Page Load Time:', pageLoadTime + 'ms');
+                    console.log('Server Response:', connectTime + 'ms');
+                    console.log('DOM Ready:', (perfData.domContentLoadedEventEnd - perfData.navigationStart) + 'ms');
+                    
+                    // Hide loader after everything is ready
+                    setTimeout(function() {
+                        const loader = document.getElementById('app-loader');
+                        if (loader) loader.classList.add('loaded');
+                    }, 200);
+                }, 1000);
+            });
+        } else {
+            // Fallback for older browsers
+            window.addEventListener('load', function() {
+                setTimeout(function() {
+                    const loader = document.getElementById('app-loader');
+                    if (loader) loader.classList.add('loaded');
+                }, 800);
+            });
+        }
+    </script>
+</body>
+</html>

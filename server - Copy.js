@@ -1,0 +1,963 @@
+﻿import { spawn } from "child_process";
+import express from "express";
+import cors from "cors";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
+import crypto from "crypto";
+import path from "path";
+import { fileURLToPath } from "url";
+import sql from "mssql";
+import bcrypt from "bcrypt";
+import cron from "node-cron";
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+
+app.use(express.json({ limit: "50mb" }));
+app.use(cookieParser());
+app.use(cors({ origin: ["http://localhost:3000", "https://spodeme.pau.edu.tr"], credentials: true }));
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+
+/* ------- MAIL ------- */
+let transporter;
+try {
+    transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || "eposta.pau.edu.tr", 
+        port: 587, secure: false,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        tls: { ciphers: "DEFAULT@SECLEVEL=0", rejectUnauthorized: false }
+    });
+} catch (err) { console.error("Mail hatası:", err.message); }
+
+/* ------- SQL ------- */
+const dbConfig = {
+    user: process.env.DB_USER, password: process.env.DB_PASS, server: process.env.DB_SERVER, database: process.env.DB_NAME,
+    options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+    pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
+};
+let pool;
+async function connectDB() { try { pool = await sql.connect(dbConfig); console.log("✅ SQL Bağlandı"); } catch (err) { console.error("❌ SQL Hatası:", err.message); } }
+connectDB();
+
+/* ------- Yardımcılar ------- */
+const sha256 = s => crypto.createHash("sha256").update(String(s)).digest("hex");
+const createSid = () => crypto.randomBytes(18).toString("hex");
+const createId = () => crypto.randomUUID();
+const SESSIONS = new Map();
+const sessionUser = req => { const sid = req.cookies?.sid; return sid && SESSIONS.get(sid); };
+const requireAuth = (req, res, next) => { const u = sessionUser(req); if (!u) return res.status(401).json({ message: "Oturum yok" }); req.user = u; next(); };
+const requireAdmin = (req, res, next) => { const me = sessionUser(req); if (!me || me.role !== "admin") return res.status(403).json({ message: "Yetkisiz" }); next(); };
+
+/* ------- AUTH API ------- */
+app.post("/api/auth/login", async (req, res) => {
+    if (!pool) return res.status(500).json({ message: "DB yok" });
+    const { username, password } = req.body || {};
+    try {
+        const r = await pool.request().input('u', username).query('SELECT * FROM TBL_SHIFT_KULLANICILAR WHERE KULLANICI_ADI = @u');
+        const user = r.recordset[0];
+        if (!user) return res.status(401).json({ message: "Hatalı giriş" });
+
+        let match = false, migrationNeeded = false;
+        if (user.SIFRE_HASH.startsWith('$2b$') || user.SIFRE_HASH.startsWith('$2a$')) {
+            match = await bcrypt.compare(password, user.SIFRE_HASH);
+        } else {
+            if (user.SIFRE_HASH === sha256(password)) { match = true; migrationNeeded = true; }
+        }
+
+        if (!match) return res.status(401).json({ message: "Hatalı giriş" });
+        if (migrationNeeded) {
+            const newHash = await bcrypt.hash(password, 10);
+            await pool.request().input('h', newHash).input('id', user.ID).query('UPDATE TBL_SHIFT_KULLANICILAR SET SIFRE_HASH = @h WHERE ID = @id');
+        }
+
+        const sData = { id: user.ID, username: user.KULLANICI_ADI, role: user.ROL, department: user.BIRIM, first_name: user.AD, last_name: user.SOYAD };
+        const sid = createSid(); SESSIONS.set(sid, sData);
+        res.cookie("sid", sid, { httpOnly: true, sameSite: "Lax", path: "/" }); res.json(sData);
+    } catch (e) { res.status(500).json({ message: "Hata" }); }
+});
+
+app.get("/api/auth/me", (req, res) => { const u = sessionUser(req); u ? res.json(u) : res.status(401).json({ message: "Yok" }); });
+app.post("/api/auth/logout", (req, res) => { const sid = req.cookies?.sid; if (sid) SESSIONS.delete(sid); res.clearCookie("sid", { path: "/" }); res.json({ ok: true }); });
+
+/* ------- DATA API ------- */
+app.get("/api/staff", requireAuth, async (req, res) => {
+    const { unit } = req.query;
+    const userUnits = (req.user.department || "").split(","); 
+    
+    if (['admin', 'manager'].includes(req.user.role) || userUnits.includes(unit)) {
+        try { 
+            const r = await pool.request().input('b', unit).query("SELECT * FROM TBL_SHIFT_PERSONEL WHERE BIRIM = @b AND AKTIF = 1 ORDER BY SIRALAMA ASC, AD_SOYAD ASC"); 
+            res.json(r.recordset); 
+        } catch { res.json([]); }
+    } else { res.json([]); }
+});
+
+/* ------- SIRALAMA KAYDETME (DÜZELTİLDİ) ------- */
+app.post("/api/staff-order", requireAuth, async (req, res) => {
+    const { order } = req.body;
+    if (!order || !Array.isArray(order)) return res.status(400).json({ message: "Geçersiz veri" });
+    
+    try {
+        for (let i = 0; i < order.length; i++) {
+            // DÜZELTME: ID'nin tipini sql.VarChar olarak belirttik.
+            // Bu olmadan SQL Server UUID'yi tanıyamayıp güncellemeyi atlıyordu.
+            await pool.request()
+                .input('s', sql.Int, i)
+                .input('id', sql.VarChar, order[i]) 
+                .query("UPDATE TBL_SHIFT_PERSONEL SET SIRALAMA = @s WHERE ID = @id");
+        }
+        res.json({ ok: true });
+    } catch (e) { 
+        console.error("Sıralama Hatası:", e); 
+        res.status(500).json({ message: "Sıralama kaydedilemedi" }); 
+    }
+});
+
+app.get("/api/week-data", requireAuth, async (req, res) => {
+    const { unit, weekISO } = req.query;
+    const userUnits = (req.user.department || "").split(",");
+
+    if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(unit)) return res.status(403).json({message: "Yetkisiz"});
+    
+    try {
+       
+       
+const shifts = await pool.request()
+    .input('b', unit)
+    .input('w', weekISO)
+    .query(`
+        SELECT ID, PERSONEL_ID, GUN, BASLANGIC, BITIS, GOREV, ETIKET
+        FROM TBL_SHIFT_VARDIYA
+        WHERE BIRIM = @b AND HAFTA_ISO = @w
+        ORDER BY GUN, BASLANGIC
+    `);
+
+
+const note = await pool.request().input('b', unit).input('w', weekISO).query("SELECT TOP 1 NOT_ICERIK FROM TBL_SHIFT_NOTLAR WHERE BIRIM = @b AND HAFTA_ISO = @w");
+        res.json({ shifts: shifts.recordset, note: note.recordset[0]?.NOT_ICERIK || "" });
+    } catch (e) { res.status(500).json({message: "Hata"}); }
+});
+
+app.get("/api/live-all", requireAuth, async (req, res) => {
+    // Admin, manager VEYA fitness kullanıcısı erişebilir
+    const isFitnessUser = req.user.username === 'fitness';
+    if (!['admin', 'manager'].includes(req.user.role) && !isFitnessUser) {
+        return res.status(403).json([]);
+    }
+    
+    const { weekISO, day } = req.query;
+    try {
+        // FITNESS kullanıcısı için sadece fitness salonlarını getir
+        let query = `
+            SELECT v.BASLANGIC, v.BITIS, v.GOREV, v.BIRIM, v.ETIKET, p.AD_SOYAD, p.RENK 
+            FROM TBL_SHIFT_VARDIYA v 
+            INNER JOIN TBL_SHIFT_PERSONEL p ON v.PERSONEL_ID = p.ID 
+            WHERE v.HAFTA_ISO = @w AND v.GUN = @d AND p.AKTIF = 1
+        `;
+        
+        // Fitness kullanıcısı ise sadece fitness salonlarını filtrele
+        if (isFitnessUser) {
+            query += ` AND v.BIRIM IN ('Technogym Fitness', 'Genel Fitness')`;
+        }
+        
+        const r = await pool.request()
+            .input('w', weekISO)
+            .input('d', sql.Int, day)
+            .query(query);
+        res.json(r.recordset);
+    } catch (e) { 
+        console.error('Live-all hatası:', e);
+        res.status(500).json([]); 
+    }
+});
+
+app.post("/api/staff", requireAdmin, async (req, res) => {
+    try { 
+        await pool.request()
+            .input('id', createId()).input('n', req.body.name).input('c', req.body.color).input('b', req.body.unit).input('t', req.body.type || 'staff')
+            .query("INSERT INTO TBL_SHIFT_PERSONEL (ID, AD_SOYAD, RENK, BIRIM, PERSONEL_TIPI) VALUES (@id, @n, @c, @b, @t)"); 
+        res.json({ ok: true }); 
+    } catch (e) { console.error(e); res.status(500).json({message:"Hata"}); }
+});
+
+app.delete("/api/staff/:id", requireAdmin, async (req, res) => {
+    try { await pool.request().input('id', sql.VarChar, req.params.id).query("UPDATE TBL_SHIFT_PERSONEL SET AKTIF=0 WHERE ID=@id"); res.json({ ok: true }); } catch { res.status(500).json({message:"Hata"}); }
+});
+
+/* --- GÖREV YÖNETİMİ --- */
+// Bir birimin görevlerini getir
+app.get("/api/tasks", requireAuth, async (req, res) => {
+    const { unit } = req.query;
+    if (!unit) return res.status(400).json({ message: "Birim gerekli" });
+    try {
+        // unit ID veya birim adı olabilir
+        let unitId;
+        if (isNaN(unit)) {
+            const unitResult = await pool.request()
+                .input('unitName', sql.NVarChar, unit)
+                .query("SELECT ID FROM TBL_SHIFT_BIRIMLER WHERE BIRIM_ADI = @unitName");
+            if (unitResult.recordset.length === 0) {
+                return res.status(404).json({ message: "Birim bulunamadı" });
+            }
+            unitId = unitResult.recordset[0].ID;
+        } else {
+            unitId = parseInt(unit);
+        }
+        
+        const r = await pool.request()
+            .input('unit', sql.Int, unitId)
+            .query("SELECT ID, GOREV_ADI as name, RENK as color, SIRALAMA as [order] FROM TBL_SHIFT_GOREVLER WHERE BIRIM_ID = @unit AND AKTIF = 1 ORDER BY SIRALAMA, GOREV_ADI");
+        res.json(r.recordset);
+    } catch (e) { 
+        console.error('Görev yükleme hatası:', e);
+        res.status(500).json({ message: "Görevler yüklenemedi" }); 
+    }
+});
+
+// Yeni görev ekle (Admin)
+app.post("/api/tasks", requireAdmin, async (req, res) => {
+    const { unitId, name, color, order } = req.body;
+    if (!unitId || !name) return res.status(400).json({ message: "Birim ve görev adı gerekli" });
+    try {
+        await pool.request()
+            .input('unit', sql.Int, unitId)
+            .input('name', sql.NVarChar(100), name)
+            .input('color', sql.NVarChar(20), color || '#64748b')
+            .input('order', sql.Int, order || 999)
+            .query("INSERT INTO TBL_SHIFT_GOREVLER (BIRIM_ID, GOREV_ADI, RENK, SIRALAMA) VALUES (@unit, @name, @color, @order)");
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('Görev ekleme hatası:', e);
+        res.status(500).json({ message: "Görev eklenemedi" });
+    }
+});
+
+// Görev güncelle (Admin)
+app.put("/api/tasks/:id", requireAdmin, async (req, res) => {
+    const { name, color, order } = req.body;
+    try {
+        await pool.request()
+            .input('id', sql.Int, req.params.id)
+            .input('name', sql.NVarChar(100), name)
+            .input('color', sql.NVarChar(20), color)
+            .input('order', sql.Int, order)
+            .query("UPDATE TBL_SHIFT_GOREVLER SET GOREV_ADI = @name, RENK = @color, SIRALAMA = @order WHERE ID = @id");
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('Görev güncelleme hatası:', e);
+        res.status(500).json({ message: "Görev güncellenemedi" });
+    }
+});
+
+// Görev sil (Admin)
+app.delete("/api/tasks/:id", requireAdmin, async (req, res) => {
+    try {
+        await pool.request()
+            .input('id', sql.Int, req.params.id)
+            .query("UPDATE TBL_SHIFT_GOREVLER SET AKTIF = 0 WHERE ID = @id");
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('Görev silme hatası:', e);
+        res.status(500).json({ message: "Görev silinemedi" });
+    }
+});
+
+/* --- DÜZELTİLMİŞ SHIFT KAYDETME (LOG HATASI GİDERİLDİ) --- */
+app.post("/api/shift", requireAuth, async (req, res) => {
+    const { staffId, unit, weekISO, day, shifts, tag } = req.body;
+    if (!staffId || !unit || !weekISO || day === undefined) return res.status(400).json({ message: "Geçersiz veri gönderildi." });
+    
+    const userUnits = (req.user.department || "").split(",");
+    if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(unit)) return res.status(403).json({ message: "Yetkisiz işlem" });
+    
+   
+    
+    try {
+        let personName = "Personel";
+        try {
+            const pRes = await pool.request().input('pid', staffId).query("SELECT AD_SOYAD FROM TBL_SHIFT_PERSONEL WHERE ID = @pid");
+            if(pRes.recordset.length > 0) personName = pRes.recordset[0].AD_SOYAD;
+        } catch (e) { console.log("İsim alınamadı, devam ediliyor."); }
+
+        await pool.request().input('sid', staffId).input('b', unit).input('w', weekISO).input('d', sql.Int, day).query("DELETE FROM TBL_SHIFT_VARDIYA WHERE PERSONEL_ID = @sid AND BIRIM = @b AND HAFTA_ISO = @w AND GUN = @d");
+        
+        if (shifts && shifts.length > 0) {
+            for (const sh of shifts) {
+                const vid = createId();
+                await pool.request()
+                    .input('id', vid).input('pid', staffId).input('b', unit).input('w', weekISO).input('d', sql.Int, day)
+                    .input('s', sh.start).input('e', sh.end).input('t', sh.task || unit).input('et', tag || null)
+                    .query("INSERT INTO TBL_SHIFT_VARDIYA (ID, PERSONEL_ID, BIRIM, HAFTA_ISO, GUN, BASLANGIC, BITIS, GOREV, ETIKET, OLUSTURMA_TARIHI) VALUES (@id, @pid, @b, @w, @d, @s, @e, @t, @et, GETDATE())");
+            }
+        }
+        
+        try {
+            const dayNames = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+            const detay = `${personName} • ${unit} • ${dayNames[day]} • ${shifts && shifts.length > 0 ? 'Vardiya Girildi' : 'Vardiya Silindi'}`;
+            await pool.request().input('k', req.user.username).input('i', 'Vardiya İşlemi').input('d', detay).query("INSERT INTO TBL_SHIFT_LOGS (KULLANICI, ISLEM, DETAY, TARIH) VALUES (@k, @i, @d, GETDATE())");
+        } catch (logErr) { console.error("Loglama hatası (Önemsiz):", logErr.message); }
+        
+        res.json({ ok: true });
+    } catch (e) { console.error("Shift Kayıt Hatası:", e); res.status(500).json({ message: "Sunucu hatası: " + e.message }); }
+});
+
+app.post("/api/note", requireAuth, async (req, res) => {
+    const { unit, weekISO, content } = req.body;
+    const note = content || req.body.note; 
+    if (!unit || !weekISO) return res.status(400).json({ message: "Geçersiz veri" });
+    const userUnits = (req.user.department || "").split(",");
+    if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(unit)) return res.status(403).json({ message: "Yetkisiz" });
+    try {
+        await pool.request().input('b', unit).input('w', weekISO).query("DELETE FROM TBL_SHIFT_NOTLAR WHERE BIRIM = @b AND HAFTA_ISO = @w");
+        if (note && note.trim()) {
+            await pool.request().input('id', createId()).input('b', unit).input('w', weekISO).input('n', note).query("INSERT INTO TBL_SHIFT_NOTLAR (ID, BIRIM, HAFTA_ISO, NOT_ICERIK, OLUSTURMA_TARIHI) VALUES (@id, @b, @w, @n, GETDATE())");
+        }
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: "Hata" }); }
+});
+
+app.get("/api/logs", requireAdmin, async (req, res) => {
+    try {
+        // Pagination parametreleri
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 500;
+        const offset = (page - 1) * limit;
+        
+        // Toplam kayıt sayısı
+        const countResult = await pool.request().query("SELECT COUNT(*) as TOTAL FROM TBL_SHIFT_LOGS");
+        const total = countResult.recordset[0].TOTAL;
+        
+        // Sayfalı veri çek (sadece ana tablodan)
+        const r = await pool.request()
+            .input('limit', limit)
+            .input('offset', offset)
+            .query(`
+                SELECT * FROM TBL_SHIFT_LOGS 
+                ORDER BY TARIH DESC 
+                OFFSET @offset ROWS 
+                FETCH NEXT @limit ROWS ONLY
+            `);
+        
+        res.json({
+            logs: r.recordset,
+            total: total,
+            page: page,
+            limit: limit,
+            pages: Math.ceil(total / limit)
+        });
+    } catch (e) {
+        console.error('Log Hatası:', e);
+        res.json({ logs: [], total: 0, page: 1, limit: 500, pages: 0 });
+    }
+});
+
+app.get("/api/units", requireAuth, async (req, res) => {
+    try { const r = await pool.request().query("SELECT ID as dbId, BIRIM_ADI as id, BIRIM_ADI as name, SIRALAMA as siralama FROM TBL_SHIFT_BIRIMLER ORDER BY SIRALAMA ASC"); res.json(r.recordset); } catch { res.json([]); }
+});
+
+app.delete("/api/units/:id", requireAdmin, async (req, res) => {
+    try { await pool.request().input('id', req.params.id).query("DELETE FROM TBL_SHIFT_BIRIMLER WHERE ID = @id"); res.json({ ok: true }); } catch { res.status(500).json({ message: "Hata" }); }
+});
+
+app.post("/api/units-order", requireAdmin, async (req, res) => {
+    const { order } = req.body;
+    if (!order || !Array.isArray(order)) return res.status(400).json({ message: "Geçersiz veri" });
+    try {
+        for (let i = 0; i < order.length; i++) { await pool.request().input('s', sql.Int, i).input('id', order[i]).query("UPDATE TBL_SHIFT_BIRIMLER SET SIRALAMA = @s WHERE ID = @id"); }
+        res.json({ ok: true });
+    } catch { res.status(500).json({ message: "Sıralama kaydedilemedi" }); }
+});
+
+/* ------- YÖNETİCİ API (DÜZELTİLDİ: app.put kullanıldı) ------- */
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+    try { const r = await pool.request().query("SELECT ID as id, KULLANICI_ADI as username, AD as first_name, SOYAD as last_name, ROL as role, BIRIM as department FROM TBL_SHIFT_KULLANICILAR ORDER BY AD ASC"); res.json(r.recordset); } catch { res.json([]); }
+});
+
+app.post("/api/admin/users", requireAdmin, async (req, res) => {
+    // Hem camelCase hem snake_case kabul et (geriye uyumluluk)
+    const { 
+        username, 
+        password, 
+        firstName, 
+        lastName, 
+        first_name, 
+        last_name, 
+        role, 
+        units, 
+        department 
+    } = req.body;
+    
+    if (!username || !password) return res.status(400).json({ message: "Zorunlu alanlar eksik" });
+    
+    try {
+        const h = await bcrypt.hash(password, 10);
+        // Frontend'den department veya units gelebilir
+        const dept = department || (Array.isArray(units) ? units.join(",") : "");
+        // Ad/Soyad için hem camelCase hem snake_case desteği
+        const ad = first_name || firstName || '';
+        const soyad = last_name || lastName || '';
+        
+        await pool.request()
+            .input('id', createId())
+            .input('u', username)
+            .input('h', h)
+            .input('f', ad)
+            .input('l', soyad)
+            .input('r', role)
+            .input('d', dept)
+            .query("INSERT INTO TBL_SHIFT_KULLANICILAR (ID, KULLANICI_ADI, SIFRE_HASH, AD, SOYAD, ROL, BIRIM) VALUES (@id, @u, @h, @f, @l, @r, @d)");
+        
+        res.json({ ok: true });
+    } catch (e) { 
+        res.status(500).json({ message: e.message }); 
+    }
+});
+
+// DÜZELTME BURADA YAPILDI (router -> app)
+app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { username, password, role, department, first_name, last_name } = req.body;
+        const pool = await sql.connect(dbConfig);
+        
+        if (password && password.length > 0) {
+            const hash = await bcrypt.hash(password, 10);
+            await pool.request().input('id', sql.VarChar, req.params.id).input('u', sql.NVarChar, username).input('h', sql.NVarChar, hash).input('f', sql.NVarChar, first_name).input('l', sql.NVarChar, last_name).input('r', sql.VarChar, role).input('d', sql.NVarChar, department).query("UPDATE TBL_SHIFT_KULLANICILAR SET KULLANICI_ADI=@u, SIFRE_HASH=@h, AD=@f, SOYAD=@l, ROL=@r, BIRIM=@d WHERE ID=@id");
+        } else {
+            await pool.request().input('id', sql.VarChar, req.params.id).input('u', sql.NVarChar, username).input('f', sql.NVarChar, first_name).input('l', sql.NVarChar, last_name).input('r', sql.VarChar, role).input('d', sql.NVarChar, department).query("UPDATE TBL_SHIFT_KULLANICILAR SET KULLANICI_ADI=@u, AD=@f, SOYAD=@l, ROL=@r, BIRIM=@d WHERE ID=@id");
+        }
+        res.json({ message: 'Güncellendi' });
+    } catch (err) { console.error(err); res.status(500).json({ message: 'Güncelleme hatası' }); }
+});
+
+app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try { await pool.request().input('id', req.params.id).query("DELETE FROM TBL_SHIFT_KULLANICILAR WHERE ID = @id"); res.json({ ok: true }); } catch { res.status(500).json({ message: "Hata" }); }
+});
+
+/* ------- ARŞİV API ------- */
+app.get("/api/archive", requireAuth, async (req, res) => {
+    const { unit } = req.query;
+    if (!unit) return res.status(400).json({ message: "Birim gerekli" });
+    
+    const userUnits = (req.user.department || "").split(",");
+    if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(unit)) {
+        return res.status(403).json([]);
+    }
+    
+    try { 
+        const r = await pool.request()
+            .input('b', unit)
+            .query(`
+                SELECT TOP 50
+                    ID, 
+                    BIRIM, 
+                    HAFTA_ISO, 
+                    BASLIK, 
+                    OLUSTURMA_TARIHI
+                FROM TBL_SHIFT_ARSIV
+                WHERE BIRIM = @b
+                ORDER BY OLUSTURMA_TARIHI DESC
+            `); 
+        res.json(r.recordset); 
+    } catch (e) { 
+        console.error('Arşiv Hatası:', e);
+        res.json([]); 
+    }
+});
+
+app.get("/api/archive/:id", requireAuth, async (req, res) => {
+    try {
+        const r = await pool.request().input('id', req.params.id).query("SELECT * FROM TBL_SHIFT_ARSIV WHERE ID = @id");
+        const arch = r.recordset[0];
+        if (!arch) return res.status(404).json({ message: "Bulunamadı" });
+        const userUnits = (req.user.department || "").split(",");
+        if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(arch.BIRIM)) return res.status(403).json({ message: "Yetkisiz" });
+        res.json({ ...arch, content: arch.DATA_JSON }); 
+    } catch (e) { res.status(500).json({ message: "Hata" }); }
+});
+
+app.post("/api/archive", requireAuth, async (req, res) => {
+    const { unit, weekISO, title, label } = req.body;
+    const baslik = title || label;
+    if (!unit || !weekISO || !baslik) return res.status(400).json({ message: "Eksik veri" });
+    const userUnits = (req.user.department || "").split(",");
+    if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(unit)) return res.status(403).json({ message: "Yetkisiz" });
+    try {
+        const shifts = await pool.request().input('b', unit).input('w', weekISO).query("SELECT * FROM TBL_SHIFT_VARDIYA WHERE BIRIM = @b AND HAFTA_ISO = @w");
+        const note = await pool.request().input('b', unit).input('w', weekISO).query("SELECT TOP 1 NOT_ICERIK FROM TBL_SHIFT_NOTLAR WHERE BIRIM = @b AND HAFTA_ISO = @w");
+        const data = JSON.stringify({ shifts: shifts.recordset, note: note.recordset[0]?.NOT_ICERIK || "" });
+        await pool.request().input('id', createId()).input('b', unit).input('w', weekISO).input('t', baslik).input('d', data).query("INSERT INTO TBL_SHIFT_ARSIV (ID, BIRIM, HAFTA_ISO, BASLIK, DATA_JSON, OLUSTURMA_TARIHI) VALUES (@id, @b, @w, @t, @d, GETDATE())");
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: "Hata" }); }
+});
+
+app.delete("/api/archive/:id", requireAuth, async (req, res) => {
+    try {
+        const r = await pool.request().input('id', req.params.id).query("SELECT BIRIM FROM TBL_SHIFT_ARSIV WHERE ID = @id");
+        const arch = r.recordset[0];
+        if (!arch) return res.status(404).json({ message: "Bulunamadı" });
+        const userUnits = (req.user.department || "").split(",");
+        if (!['admin', 'manager'].includes(req.user.role) && !userUnits.includes(arch.BIRIM)) return res.status(403).json({ message: "Yetkisiz" });
+        await pool.request().input('id', req.params.id).query("DELETE FROM TBL_SHIFT_ARSIV WHERE ID = @id");
+        res.json({ ok: true });
+    } catch { res.status(500).json({ message: "Hata" }); }
+});
+
+/* ------- ŞABLONLAR (TEMPLATES) API - DÜZELTİLDİ (ID OTOMATİK) ------- */
+app.get("/api/templates", requireAuth, async (req, res) => {
+    const { unit } = req.query;
+    try { 
+        const r = await pool.request()
+            .input('b', unit)
+            .query("SELECT * FROM TBL_SHIFT_SABLONLAR WHERE BIRIM = @b ORDER BY BASLIK ASC"); 
+        res.json(r.recordset); 
+    } catch (e) { 
+        console.error("Şablon Listeleme Hatası:", e.message); 
+        res.json([]); 
+    }
+});
+
+/* ------- ŞABLON EKLEME (DÜZELTİLDİ: ID OTOMATİK) ------- */
+app.post("/api/templates", requireAuth, async (req, res) => {
+    const { unit, label, start, end, task } = req.body;
+    
+    // Basit validasyon
+    if (!unit || !label || !start || !end) {
+        return res.status(400).json({ message: "Eksik veri" });
+    }
+
+    try { 
+        await pool.request()
+            // DİKKAT: 'id' parametresini sildik, veritabanı kendi verecek.
+            .input('b', sql.NVarChar, unit)
+            .input('n', sql.NVarChar, label)
+            .input('s', sql.VarChar, start)
+            .input('e', sql.VarChar, end)
+            .input('t', sql.NVarChar, task || '') // Görevi ekledik
+            .query("INSERT INTO TBL_SHIFT_SABLONLAR (BIRIM, BASLIK, BASLANGIC, BITIS, GOREV) VALUES (@b, @n, @s, @e, @t)"); 
+        
+        res.json({ ok: true }); 
+    } catch (e) { 
+        console.error("Şablon Ekleme Hatası:", e.message); 
+        res.status(500).json({ message: "Veritabanı hatası: " + e.message }); 
+    }
+});
+
+app.delete("/api/templates/:id", requireAuth, async (req, res) => {
+    try { 
+        // DÜZELTME: Silme işleminde ID'nin Sayı (Int) olduğunu belirttik
+        await pool.request()
+            .input('id', sql.Int, req.params.id) 
+            .query("DELETE FROM TBL_SHIFT_SABLONLAR WHERE ID = @id"); 
+        
+        res.json({ ok: true }); 
+    } catch (e) { 
+        console.error("Şablon Silme Hatası:", e.message); 
+        res.status(500).json({ message: "Silinemedi" }); 
+    }
+});
+
+/* ------- MAİL GÖNDERİM ------- */
+app.post("/api/mail/sendShift", requireAuth, async (req, res) => {
+    const { to, subject, html } = req.body;
+    if (!to || !subject || !html) return res.status(400).json({ message: "Eksik veri" });
+    try {
+        let recipientList = Array.isArray(to) ? to.join(", ") : to; 
+        await transporter.sendMail({ from: process.env.SMTP_USER, to: recipientList, subject: subject, html: html });
+        res.json({ ok: true });
+    } catch (e) { console.error("Mail Error:", e); res.status(500).json({ message: "Mail gönderilemedi" }); }
+});
+
+
+
+/* ============================================
+   PDKS KARŞILAŞTIRMA SİSTEMİ
+   ============================================ */
+
+// PDKS WEB SERVİS MOCK (Gerçeği gelene kadar test için)
+const PDKS_MOCK_DATA = [
+    { personelId: 1, tarih: '2026-01-28', giris: '08:05', cikis: '17:10' },
+    { personelId: 2, tarih: '2026-01-28', giris: '08:30', cikis: '16:45' },
+    { personelId: 3, tarih: '2026-01-28', giris: null, cikis: null }, // Gelmemiş
+];
+
+// Yardımcı: Saat → Dakika
+function timeToMinutes(timeStr) {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+}
+
+// PDKS Web Servis Çağrısı (Gerçeği gelince burası değişecek)
+async function fetchPDKSData(unit, weekISO) {
+    // TODO: Rektörlükten gelecek web servis buraya entegre edilecek
+    // Örnek URL: https://pdks.pau.edu.tr/api/getRecords?unit=X&startDate=X&endDate=X
+    
+    // ŞİMDİLİK MOCK DATA DÖN
+    return PDKS_MOCK_DATA;
+}
+
+// Karşılaştırma Algoritması
+function compareShiftWithPDKS(ourShifts, pdksData) {
+    const results = [];
+
+    ourShifts.forEach(shift => {
+        const shiftDate = new Date(shift.HAFTA_ISO);
+        shiftDate.setDate(shiftDate.getDate() + shift.GUN);
+        const dateStr = shiftDate.toISOString().split('T')[0];
+
+        // PDKS'de bu personelin bu gündeki kaydını bul
+        const pdksRecord = pdksData.find(p => 
+            p.personelId == shift.PERSONEL_ID && 
+            p.tarih === dateStr
+        );
+
+        // Karşılaştırma
+        let status = 'unknown';
+        let details = {};
+
+        if (!pdksRecord || (!pdksRecord.giris && !pdksRecord.cikis)) {
+            // PDKS'de kayıt yok
+            status = 'missing';
+            details = {
+                message: 'PDKS kaydı bulunamadı',
+                color: 'red'
+            };
+        } else {
+            // Giriş kontrolü
+            const shiftStart = timeToMinutes(shift.BASLANGIC);
+            const pdksStart = timeToMinutes(pdksRecord.giris);
+            const startDiff = pdksStart - shiftStart; // Pozitif = geç, Negatif = erken
+
+            // Çıkış kontrolü
+            const shiftEnd = timeToMinutes(shift.BITIS);
+            const pdksEnd = timeToMinutes(pdksRecord.cikis);
+            const endDiff = pdksEnd - shiftEnd;
+
+            // Durum belirleme
+            if (Math.abs(startDiff) <= 5 && Math.abs(endDiff) <= 5) {
+                status = 'on-time';
+                details = { message: 'Tam zamanında', color: 'green' };
+            } else if (startDiff > 5 && startDiff <= 15) {
+                status = 'late-minor';
+                details = { message: `${startDiff} dk geç geldi`, color: 'yellow' };
+            } else if (startDiff > 15 && startDiff <= 30) {
+                status = 'late-moderate';
+                details = { message: `${startDiff} dk geç geldi`, color: 'orange' };
+            } else if (startDiff > 30) {
+                status = 'late-major';
+                details = { message: `${startDiff} dk geç geldi`, color: 'red' };
+            } else if (startDiff < -5) {
+                status = 'early';
+                details = { message: `${Math.abs(startDiff)} dk erken geldi`, color: 'blue' };
+            }
+
+            // Çıkış durumu ekle
+            if (Math.abs(endDiff) > 5) {
+                details.exitNote = endDiff > 0 
+                    ? `${endDiff} dk geç çıktı` 
+                    : `${Math.abs(endDiff)} dk erken çıktı`;
+            }
+        }
+
+        results.push({
+            personelId: shift.PERSONEL_ID,
+            personelAd: shift.AD_SOYAD,
+            gun: shift.GUN,
+            tarih: dateStr,
+            planned: {
+                start: shift.BASLANGIC,
+                end: shift.BITIS,
+                task: shift.GOREV
+            },
+            actual: {
+                start: pdksRecord?.giris || null,
+                end: pdksRecord?.cikis || null
+            },
+            status,
+            details
+        });
+    });
+
+    return results;
+}
+
+// PDKS Karşılaştırma Endpoint'i
+app.get('/api/pdks/compare', requireAuth, async (req, res) => {
+    const { unit, weekISO } = req.query;
+    
+    if (!unit || !weekISO) {
+        return res.status(400).json({ message: 'Birim ve hafta bilgisi gerekli' });
+    }
+
+    try {
+        // 1. Bizim sistemdeki shift'leri al
+        const ourShifts = await pool.request()
+            .input('unit', unit)
+            .input('week', weekISO)
+            .query(`
+                SELECT 
+                    v.PERSONEL_ID,
+                    p.AD_SOYAD,
+                    v.HAFTA_ISO,
+                    v.GUN,
+                    v.BASLANGIC,
+                    v.BITIS,
+                    v.GOREV,
+                    v.ETIKET
+                FROM TBL_SHIFT_VARDIYA v
+                JOIN TBL_SHIFT_PERSONEL p ON v.PERSONEL_ID = p.ID
+                WHERE v.BIRIM = @unit 
+                  AND v.HAFTA_ISO = @week
+                  AND (v.ETIKET IS NULL OR v.ETIKET = '')
+                ORDER BY p.AD_SOYAD, v.GUN, v.BASLANGIC
+            `);
+
+        // 2. PDKS verilerini al
+        const pdksData = await fetchPDKSData(unit, weekISO);
+
+        // 3. Karşılaştırma yap
+        const comparison = compareShiftWithPDKS(ourShifts.recordset, pdksData);
+
+        res.json({
+            success: true,
+            data: comparison,
+            summary: {
+                total: comparison.length,
+                onTime: comparison.filter(c => c.status === 'on-time').length,
+                late: comparison.filter(c => ['late-minor', 'late-moderate', 'late-major'].includes(c.status)).length,
+                missing: comparison.filter(c => c.status === 'missing').length,
+                early: comparison.filter(c => c.status === 'early').length
+            }
+        });
+
+    } catch (err) {
+        console.error('PDKS Karşılaştırma Hatası:', err);
+        res.status(500).json({ message: 'Sunucu hatası: ' + err.message });
+    }
+});
+
+/* ------- TV MODU (Public) ------- */
+app.get("/tv", (req, res) => res.sendFile(path.join(__dirname, "public", "tv.html")));
+app.get("/api/public/tv", async (req, res) => {
+    const { weekISO, day } = req.query;
+    try {
+        const r = await pool.request()
+            .input('w', weekISO)
+            .input('d', sql.Int, day)
+            .query(`
+                SELECT 
+                    v.BASLANGIC, 
+                    v.BITIS, 
+                    v.GOREV, 
+                    v.BIRIM, 
+                    p.AD_SOYAD, 
+                    p.RENK, 
+                    p.PERSONEL_TIPI
+                FROM TBL_SHIFT_VARDIYA v
+                INNER JOIN TBL_SHIFT_PERSONEL p ON v.PERSONEL_ID = p.ID
+                WHERE v.HAFTA_ISO = @w 
+                  AND v.GUN = @d 
+                  AND (v.ETIKET IS NULL OR v.ETIKET = '')
+                  AND p.AKTIF = 1
+                ORDER BY v.BIRIM, v.BASLANGIC
+            `);
+        res.json(r.recordset);
+    } catch (e) { 
+        console.error('TV Hatası:', e); 
+        res.status(500).json([]); 
+    }
+});
+
+/* ========================================
+   OTOMATİK ARŞİVLEME SİSTEMİ
+   ======================================== */
+
+// Arşivleme Fonksiyonu
+async function autoArchiveWeek() {
+    try {
+        console.log('🗄️  Otomatik arşivleme başlıyor...');
+        
+        const now = new Date();
+        
+        // Geçen haftanın Pazartesi'sini bul
+        const lastWeekMonday = new Date(now);
+        lastWeekMonday.setDate(now.getDate() - now.getDay() - 6); // 7 gün geriye + Pazartesi
+        lastWeekMonday.setHours(0, 0, 0, 0);
+        
+        const year = lastWeekMonday.getFullYear();
+        const month = String(lastWeekMonday.getMonth() + 1).padStart(2, '0');
+        const day = String(lastWeekMonday.getDate()).padStart(2, '0');
+        const weekISO = `${year}-${month}-${day}`;
+        
+        console.log(`📅 Arşivlenecek hafta: ${weekISO}`);
+        
+        // Tüm birimleri al
+        const unitsResult = await pool.request().query("SELECT BIRIM_ADI FROM TBL_SHIFT_BIRIMLER ORDER BY SIRALAMA");
+        const units = unitsResult.recordset.map(u => u.BIRIM_ADI);
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
+        // Her birim için arşivle
+        for (const unit of units) {
+            try {
+                // Zaten arşivlenmiş mi kontrol et
+                const checkResult = await pool.request()
+                    .input('b', unit)
+                    .input('w', weekISO)
+                    .query("SELECT COUNT(*) as CNT FROM TBL_SHIFT_ARSIV WHERE BIRIM = @b AND HAFTA_ISO = @w");
+                
+                if (checkResult.recordset[0].CNT > 0) {
+                    console.log(`⏭️  ${unit} - ${weekISO} zaten arşivlenmiş, atlanıyor`);
+                    continue;
+                }
+                
+                // Shift varsa arşivle
+                const shifts = await pool.request()
+                    .input('b', unit)
+                    .input('w', weekISO)
+                    .query("SELECT * FROM TBL_SHIFT_VARDIYA WHERE BIRIM = @b AND HAFTA_ISO = @w");
+                
+                if (shifts.recordset.length === 0) {
+                    console.log(`⏭️  ${unit} - ${weekISO} shift yok, atlanıyor`);
+                    continue;
+                }
+                
+                // Notları al
+                const note = await pool.request()
+                    .input('b', unit)
+                    .input('w', weekISO)
+                    .query("SELECT TOP 1 NOT_ICERIK FROM TBL_SHIFT_NOTLAR WHERE BIRIM = @b AND HAFTA_ISO = @w");
+                
+                const data = JSON.stringify({
+                    shifts: shifts.recordset,
+                    note: note.recordset[0]?.NOT_ICERIK || ""
+                });
+                
+                const title = `${weekISO} - Otomatik Arşiv`;
+                
+                await pool.request()
+                    .input('id', createId())
+                    .input('b', unit)
+                    .input('w', weekISO)
+                    .input('t', title)
+                    .input('d', data)
+                    .query("INSERT INTO TBL_SHIFT_ARSIV (ID, BIRIM, HAFTA_ISO, BASLIK, DATA_JSON, OLUSTURMA_TARIHI) VALUES (@id, @b, @w, @t, @d, GETDATE())");
+                
+                successCount++;
+                console.log(`✅ ${unit} - ${weekISO} arşivlendi (${shifts.recordset.length} shift)`);
+                
+            } catch (e) {
+                errorCount++;
+                console.error(`❌ ${unit} arşivleme hatası:`, e.message);
+            }
+        }
+        
+        console.log(`\n📊 Arşivleme Özeti:`);
+        console.log(`   ✅ Başarılı: ${successCount}`);
+        console.log(`   ❌ Hatalı: ${errorCount}`);
+        console.log(`   📅 Hafta: ${weekISO}\n`);
+        
+    } catch (e) {
+        console.error('❌ Otomatik arşivleme genel hatası:', e);
+    }
+}
+
+// CRON AYARLARI
+// Test: Bugün saat 20:00 (bir kez)
+// Kalıcı: Her Pazar 23:59
+
+const testTime = new Date();
+const testHour = 20.07; // Test saati: 20:00
+
+// Test arşivlemesi için bugünün tarihini al
+const testCronDate = `${testTime.getMinutes()} ${testHour} ${testTime.getDate()} ${testTime.getMonth() + 1} *`;
+
+console.log('⏰ Otomatik Arşivleme Zamanlaması:');
+console.log(`   🧪 Test: Bugün ${testHour}:00`);
+console.log(`   📅 Kalıcı: Her Pazar 23:59\n`);
+
+// LOG ARŞİVLEME FONKSİYONU
+async function archiveLogs() {
+    try {
+        console.log('📝 Log arşivleme kontrolü başlıyor...');
+        
+        // Ana tablodaki kayıt sayısını kontrol et
+        const countResult = await pool.request().query("SELECT COUNT(*) as CNT FROM TBL_SHIFT_LOGS");
+        const logCount = countResult.recordset[0].CNT;
+        
+        console.log(`   📊 Mevcut log sayısı: ${logCount}`);
+        
+        if (logCount > 500) {
+            const toArchive = logCount - 500;
+            console.log(`   📦 ${toArchive} kayıt arşivlenecek...`);
+            
+            // Arşiv tablosu yoksa oluştur
+            await pool.request().query(`
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[TBL_SHIFT_LOGS_ARSIV]') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE TBL_SHIFT_LOGS_ARSIV (
+                        ID INT IDENTITY(1,1) PRIMARY KEY,
+                        KULLANICI NVARCHAR(100),
+                        ISLEM NVARCHAR(200),
+                        DETAY NVARCHAR(MAX),
+                        TARIH DATETIME,
+                        ARSIVLEME_TARIHI DATETIME DEFAULT GETDATE()
+                    )
+                END
+            `);
+            
+            // Eski kayıtları arşive taşı
+            await pool.request().query(`
+                INSERT INTO TBL_SHIFT_LOGS_ARSIV (KULLANICI, ISLEM, DETAY, TARIH)
+                SELECT TOP ${toArchive} KULLANICI, ISLEM, DETAY, TARIH
+                FROM TBL_SHIFT_LOGS
+                ORDER BY TARIH ASC
+            `);
+            
+            // Ana tablodan sil
+            await pool.request().query(`
+                DELETE FROM TBL_SHIFT_LOGS
+                WHERE ID IN (
+                    SELECT TOP ${toArchive} ID 
+                    FROM TBL_SHIFT_LOGS 
+                    ORDER BY TARIH ASC
+                )
+            `);
+            
+            console.log(`   ✅ ${toArchive} log arşivlendi ve ana tablodan silindi`);
+        } else {
+            console.log(`   ✅ Ana tabloda 500'den az kayıt var, arşivleme gerekmiyor`);
+        }
+        
+    } catch (e) {
+        console.error('❌ Log arşivleme hatası:', e);
+    }
+}
+
+// TEST: Bugün saat 20:00 (sadece bu ay, sadece bugün)
+cron.schedule(`0 ${testHour} ${testTime.getDate()} ${testTime.getMonth() + 1} *`, () => {
+    console.log('🧪 TEST ARŞIVLEME ÇALIŞIYOR (20:00)');
+    autoArchiveWeek();
+    archiveLogs(); // Log arşivleme de test edilsin
+}, {
+    timezone: "Europe/Istanbul"
+});
+
+// KALICI: Her Pazar 23:59
+cron.schedule('59 23 * * 0', () => {
+    console.log('📅 HAFTALIK OTOMATİK ARŞIVLEME ÇALIŞIYOR (Pazar 23:59)');
+    autoArchiveWeek();
+    archiveLogs();
+}, {
+    timezone: "Europe/Istanbul"
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Sunucu Hazır: http://localhost:${PORT}`));
