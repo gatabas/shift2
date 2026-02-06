@@ -1,0 +1,219 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Yönetici Paneli | PAÜ Spor Merkezi</title>
+    <link rel="icon" href="img/logo.ico" type="image/x-icon">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body class="min-h-screen text-slate-600 pb-24 sm:pb-10">
+
+    <div class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div class="h-1 w-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600"></div>
+        <div class="max-w-[1800px] mx-auto px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            
+            <div class="flex items-center justify-start gap-4 w-full lg:w-auto">
+                <img src="img/logo.png" class="h-12 w-12 object-contain" onError="this.style.display='none'" />
+                <div class="leading-none">
+                    <div class="text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase mb-0.5">PAMUKKALE ÜNİVERSİTESİ SPOR MERKEZİ</div>
+                    <div class="text-2xl font-black tracking-tight text-slate-900">YÖNETİCİ <span class="text-blue-600">PANELİ</span></div>
+                </div>
+            </div>
+
+            <div class="flex items-center w-full lg:w-auto justify-end gap-2">
+                
+                <a href="logs.html" class="flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95 w-full lg:w-auto">
+                    <span class="text-lg">📜</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wider">İşlem Geçmişi</span>
+                </a>
+
+                <a href="app.html" class="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95 w-full lg:w-auto">
+                    <span class="text-lg">🔙</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wider">Shift Ekranına Dön</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-[1600px] w-full mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+
+            <div class="xl:col-span-4 space-y-6 xl:sticky xl:top-24">
+
+                <div class="bg-white rounded-2xl shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden">
+                    <div class="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
+                            </div>
+                            <h2 class="font-bold text-slate-800 text-sm uppercase tracking-wide" id="formTitle">Kullanıcı Ekle</h2>
+                        </div>
+                        <button id="btnCancelEdit" onclick="cancelEdit()" class="hidden text-[10px] font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition active-shrink">VAZGEÇ</button>
+                    </div>
+
+                    <div class="p-6">
+                        <form id="userForm" class="space-y-5">
+                            <input type="hidden" id="editUserId" />
+
+                            <div class="input-group">
+                                <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block transition-colors">Kullanıcı Adı</label>
+                                <div class="relative">
+                                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
+                                    <input id="fUser" type="text" class="w-full h-11 pl-7 pr-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white outline-none transition-all font-medium text-slate-700 placeholder-slate-300" required placeholder="kullaniciadi" />
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="input-group">
+                                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block transition-colors">Ad</label>
+                                    <input id="fFirst" type="text" class="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white outline-none transition-all font-medium text-slate-700" placeholder="İsim" />
+                                </div>
+                                <div class="input-group">
+                                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block transition-colors">Soyad</label>
+                                    <input id="fLast" type="text" class="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white outline-none transition-all font-medium text-slate-700" placeholder="Soyisim" />
+                                </div>
+                            </div>
+
+                            <div class="input-group">
+                                <label class="flex justify-between items-center text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 transition-colors">
+                                    <span>Şifre</span>
+                                    <span id="passHint" class="hidden normal-case font-normal text-xs text-orange-400">*Boş bırakırsan değişmez</span>
+                                </label>
+                                <input id="fPass" type="password" class="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white outline-none transition-all font-medium text-slate-700 tracking-widest" required placeholder="••••••" />
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="input-group">
+                                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block transition-colors">Rol</label>
+                                    <div class="relative">
+                                        <select id="fRole" class="appearance-none w-full h-11 px-3 rounded-xl border border-slate-200 bg-white focus:bg-white outline-none transition-all font-medium text-sm text-slate-700 cursor-pointer">
+                                            <option value="staff">Personel</option>
+                                            <option value="manager">Birim Sorumlusu</option>
+                                            <option value="admin">Yönetici</option>
+                                        </select>
+                                        <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block transition-colors">Birim</label>
+                                    <div class="relative">
+                                       <div id="unitCheckboxes" class="w-full border rounded-xl px-3 py-2 body-small bg-slate-50 max-h-40 overflow-y-auto grid grid-cols-1 gap-1">
+    </div>
+                                        <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btnAdd" type="submit" class="active-shrink group w-full h-12 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-lg shadow-slate-900/20 mt-2 flex items-center justify-center gap-2 transition-all">
+                                <span>Kaydet</span>
+                                <svg class="w-4 h-4 opacity-50 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                            </button>
+                            <div id="msg" class="text-xs text-center font-bold min-h-[20px] transition-all"></div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden">
+                    <div class="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="bg-green-100 text-green-600 p-2 rounded-lg">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                            </div>
+                            <span class="font-bold text-slate-800 text-sm uppercase tracking-wide">Birimler</span>
+                        </div>
+                        <button id="btnSaveUnitOrder" onclick="saveUnitOrder()" class="hidden text-[10px] bg-sky-500 hover:bg-sky-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm shadow-sky-500/20 active-shrink transition-all">
+                            SIRALAMAYI KAYDET
+                        </button>
+                    </div>
+                    <div class="p-6">
+                        <form id="unitForm" class="flex gap-2 mb-6 group focus-within:ring-2 focus-within:ring-green-100 rounded-xl transition-all">
+                            <input id="newUnitName" type="text" placeholder="YENİ BİRİM ADI..." class="flex-1 h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:bg-white outline-none transition-colors uppercase placeholder:normal-case" required />
+                            <button type="submit" class="w-11 h-11 bg-green-500 hover:bg-green-600 text-white rounded-xl shadow-lg shadow-green-500/20 active-shrink flex items-center justify-center transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            </button>
+                        </form>
+
+                        <div class="relative mb-3">
+                            <div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-slate-100"></div></div>
+                            <div class="relative flex justify-center"><span class="bg-white px-2 text-[10px] text-slate-400 uppercase tracking-widest">Sıralamak İçin Sürükleyin</span></div>
+                        </div>
+
+                        <div id="unitListContainer" class="max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
+                            <ul id="unitList" class="space-y-2">
+                                <div class="w-full text-center text-xs text-slate-400 py-2">Yükleniyor...</div>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="xl:col-span-8">
+                <div class="flex items-center justify-between mb-6 px-1">
+                    <div>
+                        <h2 class="font-black text-2xl text-slate-800 tracking-tight">Kullanıcı Listesi</h2>
+                        <p class="text-slate-400 text-sm font-medium mt-1">Sistemdeki tüm kayıtlı personel ve yöneticiler</p>
+                    </div>
+                    <button onclick="loadUsers()" class="active-shrink bg-white hover:bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 shadow-sm hover:shadow transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span>Listeyi Yenile</span>
+                    </button>
+                </div>
+
+                <div id="usersBox" class="bg-white rounded-2xl shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] ring-1 ring-slate-100 overflow-hidden min-h-[400px]">
+                    <div class="flex flex-col items-center justify-center h-full p-10 text-slate-400 gap-3">
+                        <svg class="w-10 h-10 animate-spin text-slate-200" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span class="text-sm font-medium">Veriler yükleniyor...</span>
+                    </div>
+                </div>
+
+                <!-- GÖREV YÖNETİMİ -->
+                <div class="bg-white rounded-2xl shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden mt-8">
+                    <div class="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="bg-purple-100 text-purple-600 p-2 rounded-lg">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                            </div>
+                            <span class="font-bold text-slate-800 text-sm uppercase tracking-wide">Görev Yönetimi</span>
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        <div class="mb-4">
+                            <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Birim Seç</label>
+                            <select id="taskUnitSelect" onchange="loadTasksForUnit()" class="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white outline-none font-medium text-sm text-slate-700 cursor-pointer">
+                                <option value="">Birim seçin...</option>
+                            </select>
+                        </div>
+
+                        <div id="taskManagementArea" class="hidden">
+                            <form id="taskForm" class="mb-4 space-y-2">
+                                <input type="hidden" id="editTaskId" />
+                                <div class="grid grid-cols-1 gap-2">
+                                    <input id="taskName" type="text" placeholder="Görev Adı" class="h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white outline-none" required />
+                                </div>
+                                <button type="submit" class="w-full h-10 bg-purple-500 hover:bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm active-shrink transition">
+                                    GÖREV EKLE
+                                </button>
+                            </form>
+
+                            <div class="space-y-2 max-h-60 overflow-y-auto">
+                                <div id="taskList" class="space-y-2">
+                                    <div class="text-center text-xs text-slate-400 py-4">Görev yok</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script src="js/core/api-endpoints.js"></script>
+<script src="js/admin_v2.js"></script>
+</body>
+</html>

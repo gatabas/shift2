@@ -1,0 +1,48 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>PAÜ Spor Merkezi • Shift Hazırlama</title>
+    <link rel="icon" href="img/logo.ico" type="image/x-icon">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.10/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="bg-slate-100 min-h-screen pb-24 lg:pb-0">
+
+    <div id="root"></div>
+
+    <!-- Core -->
+    <script src="js/core/api-endpoints.js"></script>
+    <script type="text/babel" src="js/utils.js"></script>
+    <script type="text/babel" src="js/components.js"></script>
+
+    <!-- Hooks -->
+    <script type="text/babel" src="js/hooks/useAuth.js"></script>
+    <script type="text/babel" src="js/hooks/useScheduleData.js"></script>
+    <script type="text/babel" src="js/hooks/useTemplates.js"></script>
+    <script type="text/babel" src="js/hooks/useArchive.js"></script>
+    <script type="text/babel" src="js/hooks/useEmail.js"></script>
+    <script type="text/babel" src="js/hooks/usePdks.js"></script>
+
+    <!-- Modals -->
+    <script type="text/babel" src="js/modals/EmailModal.js"></script>
+    <script type="text/babel" src="js/modals/ArchiveModal.js"></script>
+    <script type="text/babel" src="js/modals/PDKSModal.js"></script>
+    <script type="text/babel" src="js/modals/TemplateManager.js"></script>
+    <script type="text/babel" src="js/modals/ShiftWizard.js"></script>
+    <script type="text/babel" src="js/modals/CellEditModal.js"></script>
+
+    <!-- Dashboard & App -->
+    <script type="text/babel" src="js/dashboard.js"></script>
+    <script type="text/babel" src="js/app.js"></script>
+</body>
+</html>

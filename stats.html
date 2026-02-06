@@ -1,0 +1,369 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>İstatistikler | PAÜ Spor Merkezi</title>
+    <link rel="icon" href="img/logo.ico" type="image/x-icon">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Phase 3: PDF & Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        * { font-family: 'Barlow', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background-color: #FFF8E7; } /* Krem Rengi Arka Plan */
+    </style>
+</head>
+<body class="min-h-screen text-slate-700 pb-10">
+
+    <div class="bg-white border-b border-orange-200 sticky top-0 z-50 shadow-sm">
+        <div class="h-1 w-full bg-gradient-to-r from-orange-500 via-red-500 to-amber-600"></div>
+        <div class="max-w-[1800px] mx-auto px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            
+            <div class="flex items-center justify-start gap-4 w-full lg:w-auto">
+                <img src="img/logo.png" class="h-12 w-12 object-contain" onError="this.style.display='none'" />
+                <div class="leading-none">
+                    <div class="text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase mb-0.5">PAMUKKALE ÜNİVERSİTESİ SPOR MERKEZİ</div>
+                    <div class="text-2xl font-black tracking-tight text-slate-900">İSTATİSTİK <span class="text-orange-600">PANELİ</span></div>
+                </div>
+            </div>
+
+            <div class="flex items-center w-full lg:w-auto justify-end">
+                <a href="app.html" class="flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 px-4 py-2.5 rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95 w-full lg:w-auto">
+                    <span class="text-lg">🔙</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wider">Shift Ekranına Dön</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-[1600px] w-full mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <!-- YENİ: GELİŞMİŞ FİLTRELEME PANELİ -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-slate-700 to-slate-900 px-6 py-4">
+                <h2 class="text-xl font-black text-white flex items-center gap-2">
+                    <span>🔍</span> GELİŞMİŞ FİLTRELEME
+                </h2>
+                <p class="text-white/80 text-sm mt-1">Verileri detaylı filtreleyerek özelleştirilmiş analiz yapın</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-2">TARİH ARALIĞI</label>
+                        <select id="filterDateRange" class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                            <option value="30">Son 30 Gün</option>
+                            <option value="60">Son 60 Gün</option>
+                            <option value="90">Son 90 Gün</option>
+                            <option value="180">Son 6 Ay</option>
+                            <option value="365">Son 1 Yıl</option>
+                            <option value="custom">Özel Tarih</option>
+                        </select>
+                    </div>
+
+                    <div id="customDateContainer" class="hidden">
+                        <label class="block text-xs font-bold text-slate-600 mb-2">BAŞLANGIÇ - BİTİŞ</label>
+                        <div class="flex gap-2">
+                            <input type="date" id="filterStartDate" class="flex-1 px-2 py-2 border-2 border-slate-300 rounded-lg text-sm">
+                            <input type="date" id="filterEndDate" class="flex-1 px-2 py-2 border-2 border-slate-300 rounded-lg text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-2">BİRİM</label>
+                        <select id="filterUnit" class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                            <option value="all">Tüm Birimler</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-2">PERSONEL TİPİ</label>
+                        <select id="filterStaffType" class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                            <option value="all">Tümü</option>
+                            <option value="staff">Kadrolu</option>
+                            <option value="student">Kısmi Zamanlı</option>
+                            <option value="iskur">İşkur</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-2">RİSK SEVİYESİ</label>
+                        <select id="filterRisk" class="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                            <option value="all">Tümü</option>
+                            <option value="high">🔴 Yüksek Risk</option>
+                            <option value="medium">🟡 Orta Risk</option>
+                            <option value="low">🟢 Düşük Risk</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 mt-6">
+                    <button onclick="applyFilters()" class="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-xl transition active:scale-95 shadow-lg">
+                        🔍 Filtreleri Uygula
+                    </button>
+                    <button onclick="resetFilters()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 px-6 rounded-xl transition active:scale-95">
+                        🔄 Sıfırla
+                    </button>
+                    <button onclick="saveFilters()" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-xl transition active:scale-95">
+                        💾 Kaydet
+                    </button>
+                </div>
+
+                <div id="activeFilters" class="mt-4 flex flex-wrap gap-2 hidden">
+                    <span class="text-xs font-bold text-slate-500">Aktif Filtreler:</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- İSTATİSTİK KARTLARI -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-orange-100 flex items-center gap-4 hover:shadow-md transition">
+                <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-2xl">👥</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Toplam Personel</div>
+                    <div class="text-2xl font-black text-slate-800" id="stat-total-staff">-</div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 flex items-center gap-4 hover:shadow-md transition">
+                <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-2xl">📅</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Toplam Vardiya</div>
+                    <div class="text-2xl font-black text-slate-800" id="stat-total-shifts">-</div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-green-100 flex items-center gap-4 hover:shadow-md transition">
+                <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-2xl">🏖️</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Kullanılan İzin</div>
+                    <div class="text-2xl font-black text-slate-800" id="stat-total-leaves">-</div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-purple-100 flex items-center gap-4 hover:shadow-md transition">
+                <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-2xl">🏢</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Aktif Birim</div>
+                    <div class="text-2xl font-black text-slate-800" id="stat-total-units">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRAFİKLER -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <span>📊</span> Birim Bazlı Vardiya Dağılımı
+                </h3>
+                <div class="relative h-64">
+                    <canvas id="chartShiftsByUnit"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <span>👥</span> Personel Tipi Dağılımı
+                </h3>
+                <div class="relative h-64">
+                    <canvas id="chartStaffType"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <span>🏖️</span> İzin Türleri
+                </h3>
+                <div class="relative h-64">
+                    <canvas id="chartLeaves"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <span>🌟</span> En Çok Vardiya Alan 5 Personel
+                </h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="border-b-2 border-slate-200">
+                            <tr class="text-xs font-bold text-slate-500 uppercase">
+                                <th class="p-3 text-left">Sıra</th>
+                                <th class="p-3 text-left">Ad Soyad</th>
+                                <th class="p-3 text-right">Vardiya</th>
+                                <th class="p-3 text-right">Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topStaffTable">
+                            <tr><td colspan="4" class="p-4 text-center text-slate-400">Yükleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- RİSK ANALİZİ -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-red-500 to-orange-500 px-6 py-4">
+                <h2 class="text-xl font-black text-white flex items-center gap-2">
+                    <span>⚠️</span> RİSK MONİTÖRÜ
+                </h2>
+                <p class="text-white/80 text-sm mt-1">Anormal davranış patternleri ve dikkat gereken durumlar</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
+                        <div class="text-3xl font-black text-red-600" id="risk-high">0</div>
+                        <div class="text-xs font-bold text-red-700 mt-1">YÜKSEK RİSK</div>
+                    </div>
+                    <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4 text-center">
+                        <div class="text-3xl font-black text-yellow-600" id="risk-medium">0</div>
+                        <div class="text-xs font-bold text-yellow-700 mt-1">ORTA RİSK</div>
+                    </div>
+                    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center">
+                        <div class="text-3xl font-black text-green-600" id="risk-normal">0</div>
+                        <div class="text-xs font-bold text-green-700 mt-1">NORMAL</div>
+                    </div>
+                </div>
+
+                <div id="riskList" class="space-y-3">
+                    <div class="text-center text-slate-400 py-8">Yükleniyor...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YENİ: PERSONEL DETAY KARTLARI -->
+        <div class="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-blue-500 to-cyan-500 px-6 py-4">
+                <h2 class="text-xl font-black text-white flex items-center gap-2">
+                    <span>👥</span> PERSONEL DETAY ANALİZİ
+                </h2>
+                <p class="text-white/80 text-sm mt-1">Son 30 gün çalışma ve izin detayları</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="mb-4 flex gap-2">
+                    <input type="text" id="searchStaff" placeholder="Personel ara..." class="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <select id="filterType" class="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="all">Tüm Personel</option>
+                        <option value="high_risk">Yüksek Risk</option>
+                        <option value="medium_risk">Orta Risk</option>
+                        <option value="low_hours">Az Çalışan</option>
+                        <option value="high_leave">Çok İzinli</option>
+                    </select>
+                </div>
+
+                <div id="staffDetailList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="text-center text-slate-400 py-8 col-span-full">Yükleniyor...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YENİ: PERFORMANS SKORLARI -->
+        <div class="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
+                <h2 class="text-xl font-black text-white flex items-center gap-2">
+                    <span>🏆</span> PERFORMANS SKORLARI
+                </h2>
+                <p class="text-white/80 text-sm mt-1">AI tabanlı personel değerlendirme sistemi</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="mb-6 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-4">
+                    <div class="text-sm font-bold text-purple-900 mb-2">📊 Skor Hesaplama Formülü:</div>
+                    <div class="text-xs text-purple-700 grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <div>✓ Düzenlilik: 25 puan</div>
+                        <div>✓ İzin Durumu: 25 puan</div>
+                        <div>✓ Fazla Mesai: 20 puan</div>
+                    </div>
+                </div>
+
+                <div id="performanceList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="text-center text-slate-400 py-8 col-span-full">Yükleniyor...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YENİ: YOĞUNLUK ISI HARİTASI -->
+        <div class="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-indigo-500 to-blue-500 px-6 py-4">
+                <h2 class="text-xl font-black text-white flex items-center gap-2">
+                    <span>🔥</span> YOĞUNLUK ISI HARİTASI
+                </h2>
+                <p class="text-white/80 text-sm mt-1">Hangi gün ve saatlerde personel ihtiyacı fazla?</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="overflow-x-auto">
+                    <div id="heatmapContainer" class="min-w-[800px]">
+                        <div class="text-center text-slate-400 py-8">Yükleniyor...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YENİ: TREND ANALİZİ -->
+        <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="bg-gradient-to-r from-green-500 to-teal-500 px-6 py-4">
+                    <h2 class="text-xl font-black text-white flex items-center gap-2">
+                        <span>📈</span> TREND ANALİZİ
+                    </h2>
+                    <p class="text-white/80 text-sm mt-1">Son 3 ay vardiya ve izin trendleri</p>
+                </div>
+                
+                <div class="p-6">
+                    <div class="relative h-64">
+                        <canvas id="chartTrend"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4">
+                    <h2 class="text-xl font-black text-white flex items-center gap-2">
+                        <span>🔮</span> GELECEK TAHMİNLERİ
+                    </h2>
+                    <p class="text-white/80 text-sm mt-1">AI tabanlı önümüzdeki ay tahminleri</p>
+                </div>
+                
+                <div class="p-6">
+                    <div id="predictionsContainer" class="space-y-4">
+                        <div class="text-center text-slate-400 py-8">Yükleniyor...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YENİ: HIZLI RAPOR EXPORT -->
+        <div class="mt-8 bg-gradient-to-r from-slate-700 to-slate-900 rounded-2xl shadow-lg overflow-hidden">
+            <div class="p-6">
+                <h2 class="text-xl font-black text-white flex items-center gap-2 mb-4">
+                    <span>📄</span> HIZLI RAPOR
+                </h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <button onclick="exportPDF()" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition active:scale-95 flex items-center justify-center gap-2">
+                        <span>📕</span> PDF İndir
+                    </button>
+                    <button onclick="exportExcel()" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-xl transition active:scale-95 flex items-center justify-center gap-2">
+                        <span>📗</span> Excel İndir
+                    </button>
+                    <button onclick="printReport()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-xl transition active:scale-95 flex items-center justify-center gap-2">
+                        <span>🖨️</span> Yazdır
+                    </button>
+                    <button onclick="shareReport()" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-4 rounded-xl transition active:scale-95 flex items-center justify-center gap-2">
+                        <span>📤</span> Paylaş
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/core/api-endpoints.js"></script>
+    <script src="js/stats.js"></script>
+</body>
+</html>
