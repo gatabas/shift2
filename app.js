@@ -619,7 +619,7 @@ function App() {
                     {isIdariIzin ? '\u0130dari \u0130zin' : (s.task ? s.task.replace('Antren\u00F6r\u00FC', 'ANT.').replace('&', '&') : `${currentUnit.name}`)}
                 </div>
                 <div className="shift-body" style={isIdariIzin ? { backgroundColor: '#fff7ed', color: '#ea580c' } : {}}>
-                    {dotTime(s.start)} \u2192 {dotTime(s.end)}{isNextDay && <span className="ml-0.5">\u{1F305}</span>}
+{dotTime(s.start)} {'\u2192'} {dotTime(s.end)}{isNextDay && <span className="ml-0.5">{'\u{1F305}'}</span>}
                 </div>
             </div>);
         })} </div> );
